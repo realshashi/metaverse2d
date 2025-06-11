@@ -1,9 +1,8 @@
-import { User } from '../types';
+import { User, Space } from '../types';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
-// Using built-in Error type instead of importing from node:util
-// import { Error } from 'node:util';
+import { Error } from '@types/node';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
@@ -16,14 +15,35 @@ interface JWTUser {
 interface AuthResponse {
   token: string;
   user: User;
-  spaces: any[];
+  spaces: Space[];
 }
 
-export class AuthService {
-  private users: Map<string, User>;
+  }
 
-  constructor() {
-    this.users = new Map();
+  getAllUsers(): User[] {
+    return Array.from(this.users.values());
+  }
+
+  getUserById(userId: string): User | null {
+    return this.users.get(userId) || null;
+  }
+
+  getUserByUsername(username: string): User | null {
+    return this.users.get(username) || null;
+  }
+
+  updateUserPosition(userId: string, position: { x: number, y: number }): void {
+    const user = this.users.get(userId);
+    if (user) {
+      user.position = position;
+      user.lastSeen = new Date();
+    }
+  }
+export class AuthService {
+  private databaseService: DatabaseService;
+
+  constructor(databaseService: DatabaseService) {
+    this.databaseService = databaseService;
   }
 
   async signup(username: string, password: string, type: 'admin' | 'user'): Promise<AuthResponse> {
@@ -31,27 +51,28 @@ export class AuthService {
       throw new Error('Username and password are required');
     }
 
-    if (this.users.has(username)) {
+    const existingUser = await this.databaseService.getUserByUsername(username);
+    if (existingUser) {
       throw new Error('Username already exists');
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const user: User = {
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       username,
       password: hashedPassword,
       type,
       lastSeen: new Date()
     };
 
-    this.users.set(username, user);
+    await this.databaseService.createUser(user);
 
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '24h' });
     return { token, user, spaces: [] };
   }
 
   async signin(username: string, password: string): Promise<AuthResponse> {
-    const user = this.users.get(username);
+    const user = await this.databaseService.getUserByUsername(username);
     if (!user) {
       throw new Error('Invalid credentials');
     }
@@ -62,12 +83,13 @@ export class AuthService {
     }
 
     user.lastSeen = new Date();
+    await this.databaseService.updateUser(user.id, { lastSeen: user.lastSeen });
     
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '24h' });
     return { token, user, spaces: [] };
   }
 
-  verifyToken(token: string): string {
+  async verifyToken(token: string): Promise<string> {
     try {
       const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
       return decoded.userId;
@@ -76,25 +98,23 @@ export class AuthService {
     }
   }
 
-  getAllUsers(): User[] {
-    return Array.from(this.users.values());
+  async getAllUsers(): Promise<User[]> {
+    return await this.databaseService.getAllUsers();
   }
 
-  getUserById(userId: string): User | null {
-    const user = Array.from(this.users.values()).find(u => u.id === userId);
-    return user || null;
+  async getUserById(userId: string): Promise<User | null> {
+    return await this.databaseService.getUserById(userId);
   }
 
-  updateUserPosition(userId: string, position: { x: number, y: number }): void {
-    const user = this.users.get(userId);
-    if (user) {
-      user.position = position;
-      user.lastSeen = new Date();
-    }
+  async getUserByUsername(username: string): Promise<User | null> {
+    return await this.databaseService.getUserByUsername(username);
   }
 
-  // Add this method to get users by space
-  getUsersBySpace(spaceId: string): User[] {
-    return Array.from(this.users.values()).filter(user => user.currentSpaceId === spaceId);
+  async updateUserPosition(userId: string, position: { x: number, y: number }): Promise<void> {
+    await this.databaseService.updateUserPosition(userId, position);
+  }
+
+  async getUsersBySpace(spaceId: string): Promise<User[]> {
+    return await this.databaseService.getUsersBySpace(spaceId);
   }
 }

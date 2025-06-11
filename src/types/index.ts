@@ -26,15 +26,15 @@ export interface Avatar {
 export interface Space {
   id: string;
   name: string;
-  description: string;
-  createdById: string;
-  createdAt: Date;
-  elements: string[];
-  users: Set<string>;
   background: string;
   maxUsers: number;
-  privacy: 'public' | 'private';
+  private: boolean;
   password?: string;
+  creatorId: string;
+  createdAt: Date;
+  updatedAt: Date;
+  users: Set<string>;
+  elements: Set<Element>;
 }
 
 export interface Element {
